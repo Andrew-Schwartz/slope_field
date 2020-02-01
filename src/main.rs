@@ -1,11 +1,18 @@
+use std::collections::BTreeMap;
+use std::fs::File;
+use std::io::Read;
+
+use fasteval::{Compiler, eval_compiled_ref, ez_eval, Instruction, Parser, Slab};
+use fasteval::evaler::Evaler;
 use ggez::{Context, ContextBuilder, event, GameResult, graphics};
 use ggez::event::EventHandler;
 use ggez::graphics::{BLACK, Color};
-use ggez::mint::Point2;
 use ggez::input::mouse;
+use ggez::mint::Point2;
 
-struct State<F: Fn(f32, f32) -> f32> {
-    dydt: F,
+struct State {
+    dydt: Instruction,
+    slab: Slab,
     dt: f32,
     t_min: f32,
     t_max: f32,
@@ -17,10 +24,11 @@ struct State<F: Fn(f32, f32) -> f32> {
     pr: Point2<f32>,
 }
 
-impl<F: Fn(f32, f32) -> f32> State<F> {
-    fn new(f: F) -> State<F> {
+impl  State {
+    fn new(eq: Instruction, slab: Slab) -> State {
         State {
-            dydt: f,
+            dydt: eq,
+            slab,
             dt: 0.01,
             t_min: -10.0,
             t_max: 10.0,
@@ -32,9 +40,15 @@ impl<F: Fn(f32, f32) -> f32> State<F> {
             pr: Point2 { x: 1.0, y: 1.0 },
         }
     }
+
+    fn calculate<F>(&self, mut f: F) -> Result<f64, fasteval::error::Error>
+        where F: FnMut(&str, Vec<f64>) -> Option<f64> {
+        let x = eval_compiled_ref!(&self.dydt, &self.slab, &mut f);
+        Ok(x)
+    }
 }
 
-impl<F: Fn(f32, f32) -> f32> EventHandler for State<F> {
+impl  EventHandler for State {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
         self.pl = from_scrn(self, &mouse::position(ctx));
         self.pr = self.pl;
@@ -55,7 +69,14 @@ impl<F: Fn(f32, f32) -> f32> EventHandler for State<F> {
                 let t = (self.t_max - self.t_min) as f32 / self.t_div as f32 * i as f32 + self.t_min as f32;
                 let y = (self.y_max - self.y_min) as f32 / self.y_div as f32 * j as f32 + self.y_min as f32;
 
-                let slope = (self.dydt)(t, y);
+                let mut cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
+                    match name {
+                        "t" => Some(t as f64),
+                        "y" => Some(y as f64),
+                        _ => None
+                    }
+                };
+                let slope = self.calculate(cb).unwrap() as f32;
 
                 let Point2 { x, y } = to_scrn(self, &Point2 { x: t, y });
 
@@ -79,7 +100,15 @@ impl<F: Fn(f32, f32) -> f32> EventHandler for State<F> {
 
         while in_bounds(&left, self) || in_bounds(&right, self) {
             if in_bounds(&left, self) {
-                let delta = (self.dydt)(left.x, left.y);
+                let mut cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
+                    match name {
+                        "t" => Some(left.x as f64),
+                        "y" => Some(left.y as f64),
+                        _ => None
+                    }
+                };
+                let delta = self.calculate(cb).unwrap() as f32;
+
                 let new = Point2 {
                     x: left.x - self.dt,
                     y: left.y - delta * self.dt,
@@ -93,7 +122,15 @@ impl<F: Fn(f32, f32) -> f32> EventHandler for State<F> {
                 left = new;
             }
             if in_bounds(&right, self) {
-                let delta = (self.dydt)(right.x, right.y);
+                let mut cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
+                    match name {
+                        "t" => Some(right.x as f64),
+                        "y" => Some(right.y as f64),
+                        _ => None
+                    }
+                };
+                let delta = self.calculate(cb).unwrap() as f32;
+
                 let new = Point2 {
                     x: right.x + self.dt,
                     y: right.y + delta * self.dt,
@@ -119,8 +156,38 @@ impl<F: Fn(f32, f32) -> f32> EventHandler for State<F> {
     }
 }
 
+
+fn in_bounds(pt: &Point2<f32>, state: &State) -> bool {
+    let Point2 { x, y } = *pt;
+    x >= state.t_min && x <= state.t_max && y >= state.y_min && y <= state.y_max
+}
+
+fn to_scrn(state: &State, pt: &Point2<f32>) -> Point2<f32> {
+    Point2 {
+        x: 400.0 + pt.x / (state.t_max - state.t_min) * 800.0,
+        y: 300.0 - pt.y / (state.y_max - state.y_min) * 600.0,
+    }
+}
+
+fn from_scrn(state: &State, pt: &Point2<f32>) -> Point2<f32> {
+    Point2 {
+        x: (pt.x - 400.0) / 800.0 * (state.t_max - state.t_min),
+        y: -(pt.y - 300.0) / 600.0 * (state.y_max - state.y_min),
+    }
+}
+
 fn main() {
-    let state = &mut State::new(eq);
+    let eq1 = read_eq();
+
+    let parser = Parser::new();
+    let mut slab = Slab::new();
+
+    let mut compiled = parser.parse(&eq1, &mut slab.ps)
+        .unwrap()
+        .from(&slab.ps)
+        .compile(&slab.ps, &mut slab.cs);
+
+    let state = &mut State::new(compiled, slab);
 
     let cb = ContextBuilder::new("", "");
     let (ref mut ctx, ref mut event_loop) = &mut cb.build().unwrap();
@@ -128,25 +195,9 @@ fn main() {
     event::run(ctx, event_loop, state).unwrap();
 }
 
-fn in_bounds<F: Fn(f32, f32) -> f32>(pt: &Point2<f32>, state: &State<F>) -> bool {
-    let Point2 { x, y } = *pt;
-    x >= state.t_min && x <= state.t_max && y >= state.y_min && y <= state.y_max
-}
-
-fn to_scrn<F: Fn(f32, f32) -> f32>(state: &State<F>, pt: &Point2<f32>) -> Point2<f32> {
-    Point2 {
-        x: 400.0 + pt.x / (state.t_max - state.t_min) * 800.0,
-        y: 300.0 - pt.y / (state.y_max - state.y_min) * 600.0,
-    }
-}
-
-fn from_scrn<F: Fn(f32, f32) -> f32>(state: &State<F>, pt: &Point2<f32>) -> Point2<f32> {
-    Point2 {
-        x: (pt.x - 400.0) / 800.0 * (state.t_max - state.t_min),
-        y: -(pt.y - 300.0) / 600.0 * (state.y_max - state.y_min),
-    }
-}
-
-fn eq(t: f32, y: f32) -> f32 {
-    t.sin() * y.sin()
+fn read_eq() -> String {
+    let mut file = File::open("eq.txt").unwrap();
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).unwrap();
+    contents
 }
