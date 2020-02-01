@@ -1,8 +1,7 @@
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Read;
 
-use fasteval::{Compiler, eval_compiled_ref, ez_eval, Instruction, Parser, Slab};
+use fasteval::{Compiler, eval_compiled_ref, Instruction, Parser, Slab};
 use fasteval::evaler::Evaler;
 use ggez::{Context, ContextBuilder, event, GameResult, graphics};
 use ggez::event::EventHandler;
@@ -69,7 +68,7 @@ impl  EventHandler for State {
                 let t = (self.t_max - self.t_min) as f32 / self.t_div as f32 * i as f32 + self.t_min as f32;
                 let y = (self.y_max - self.y_min) as f32 / self.y_div as f32 * j as f32 + self.y_min as f32;
 
-                let mut cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
+                let cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
                     match name {
                         "t" => Some(t as f64),
                         "y" => Some(y as f64),
@@ -100,7 +99,7 @@ impl  EventHandler for State {
 
         while in_bounds(&left, self) || in_bounds(&right, self) {
             if in_bounds(&left, self) {
-                let mut cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
+                let cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
                     match name {
                         "t" => Some(left.x as f64),
                         "y" => Some(left.y as f64),
@@ -122,7 +121,7 @@ impl  EventHandler for State {
                 left = new;
             }
             if in_bounds(&right, self) {
-                let mut cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
+                let cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
                     match name {
                         "t" => Some(right.x as f64),
                         "y" => Some(right.y as f64),
@@ -182,7 +181,7 @@ fn main() {
     let parser = Parser::new();
     let mut slab = Slab::new();
 
-    let mut compiled = parser.parse(&eq1, &mut slab.ps)
+    let compiled = parser.parse(&eq1, &mut slab.ps)
         .unwrap()
         .from(&slab.ps)
         .compile(&slab.ps, &mut slab.cs);
