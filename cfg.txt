@@ -1,0 +1,6 @@
+t min: -10.0
+t max: 10.0
+t div: 40
+y min: -10.0
+y max: 10.0
+y div: 30

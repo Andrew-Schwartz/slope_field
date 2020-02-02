@@ -1,1 +1,1 @@
-t / y
+sin(t) + cos(y)

@@ -6,12 +6,14 @@ use fasteval::evaler::Evaler;
 use ggez::{Context, ContextBuilder, event, GameResult, graphics};
 use ggez::event::EventHandler;
 use ggez::graphics::{BLACK, Color};
+use ggez::input::keyboard::KeyCode;
 use ggez::input::mouse;
 use ggez::mint::Point2;
 
 struct State {
     dydt: Instruction,
     slab: Slab,
+    parser: Parser,
     dt: f32,
     t_min: f32,
     t_max: f32,
@@ -23,11 +25,12 @@ struct State {
     pr: Point2<f32>,
 }
 
-impl  State {
-    fn new(eq: Instruction, slab: Slab) -> State {
+impl State {
+    fn new() -> State {
         State {
-            dydt: eq,
-            slab,
+            dydt: Instruction::IConst(1.0),
+            slab: Slab::new(),
+            parser: Parser::new(),
             dt: 0.01,
             t_min: -10.0,
             t_max: 10.0,
@@ -45,12 +48,52 @@ impl  State {
         let x = eval_compiled_ref!(&self.dydt, &self.slab, &mut f);
         Ok(x)
     }
+
+    fn read_eq(&mut self) {
+        let mut file = File::open("eq.txt").unwrap();
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).unwrap();
+
+        self.dydt = self.parser.parse(&contents, &mut self.slab.ps)
+            .unwrap()
+            .from(&self.slab.ps)
+            .compile(&self.slab.ps, &mut self.slab.cs);
+    }
+
+    fn read_cfg(&mut self) {
+        let mut file = File::open("cfg.txt").unwrap();
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).unwrap();
+
+        contents.lines()
+            .map(|line| {
+                let mut split = line.split(":");
+                (split.next().unwrap(), split.next().unwrap())
+            })
+            .for_each(|(var, val)| {
+                match var {
+                    "t min" => self.t_min = val.trim().parse().unwrap_or(self.t_min),
+                    "t max" => self.t_max = val.trim().parse().unwrap_or(self.t_max),
+                    "t div" => self.t_div = val.trim().parse().unwrap_or(self.t_div),
+                    "y min" => self.y_min = val.trim().parse().unwrap_or(self.y_min),
+                    "y max" => self.y_max = val.trim().parse().unwrap_or(self.y_max),
+                    "y div" => self.y_div = val.trim().parse().unwrap_or(self.y_div),
+                    _ => println!("{}", var),
+                }
+            });
+    }
 }
 
-impl  EventHandler for State {
+impl EventHandler for State {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
         self.pl = from_scrn(self, &mouse::position(ctx));
         self.pr = self.pl;
+
+        let new_eq = ggez::input::keyboard::is_key_pressed(ctx, KeyCode::Return);
+        if new_eq {
+            self.read_eq();
+            self.read_cfg();
+        }
 
         Ok(())
     }
@@ -176,27 +219,12 @@ fn from_scrn(state: &State, pt: &Point2<f32>) -> Point2<f32> {
 }
 
 fn main() {
-    let eq1 = read_eq();
-
-    let parser = Parser::new();
-    let mut slab = Slab::new();
-
-    let compiled = parser.parse(&eq1, &mut slab.ps)
-        .unwrap()
-        .from(&slab.ps)
-        .compile(&slab.ps, &mut slab.cs);
-
-    let state = &mut State::new(compiled, slab);
+    let state = &mut State::new();
+    state.read_eq();
+    state.read_cfg();
 
     let cb = ContextBuilder::new("", "");
     let (ref mut ctx, ref mut event_loop) = &mut cb.build().unwrap();
 
     event::run(ctx, event_loop, state).unwrap();
-}
-
-fn read_eq() -> String {
-    let mut file = File::open("eq.txt").unwrap();
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).unwrap();
-    contents
 }
