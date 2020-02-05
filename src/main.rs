@@ -49,16 +49,16 @@ impl State {
         Ok(x)
     }
 
-    fn read_eq(&mut self) {
-        let mut file = File::open("eq.txt").unwrap();
-        let mut contents = String::new();
-        file.read_to_string(&mut contents).unwrap();
-
-        self.dydt = self.parser.parse(&contents, &mut self.slab.ps)
-            .unwrap()
-            .from(&self.slab.ps)
-            .compile(&self.slab.ps, &mut self.slab.cs);
-    }
+//    fn read_eq(&mut self) {
+//        let mut file = File::open("eq.txt").unwrap();
+//        let mut contents = String::new();
+//        file.read_to_string(&mut contents).unwrap();
+//
+//        self.dydt = self.parser.parse(&contents, &mut self.slab.ps)
+//            .unwrap()
+//            .from(&self.slab.ps)
+//            .compile(&self.slab.ps, &mut self.slab.cs);
+//    }
 
     fn read_cfg(&mut self) {
         let mut file = File::open("cfg.txt").unwrap();
@@ -78,6 +78,10 @@ impl State {
                     "y min" => self.y_min = val.trim().parse().unwrap_or(self.y_min),
                     "y max" => self.y_max = val.trim().parse().unwrap_or(self.y_max),
                     "y div" => self.y_div = val.trim().parse().unwrap_or(self.y_div),
+                    "eq" => self.dydt = self.parser.parse(&val, &mut self.slab.ps)
+                        .unwrap()
+                        .from(&self.slab.ps)
+                        .compile(&self.slab.ps, &mut self.slab.cs),
                     _ => println!("{}", var),
                 }
             });
@@ -86,12 +90,12 @@ impl State {
 
 impl EventHandler for State {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
-        self.pl = from_scrn(self, &mouse::position(ctx));
+        self.pl = mouse::position(ctx).from_scrn(self);
         self.pr = self.pl;
 
         let new_eq = ggez::input::keyboard::is_key_pressed(ctx, KeyCode::Return);
         if new_eq {
-            self.read_eq();
+//            self.read_eq();
             self.read_cfg();
         }
 
@@ -105,6 +109,16 @@ impl EventHandler for State {
         graphics::clear(ctx, graphics::Color::from_rgb(255, 255, 255));
 
         let mut builder = graphics::MeshBuilder::new();
+
+        builder.line(&[
+            Point2 { x: self.t_min, y: 0.0 }.to_scrn(self),
+            Point2 { x: self.t_max, y: 0.0 }.to_scrn(self)
+        ], 1.0, BLACK)?;
+
+        builder.line(&[
+            Point2 { x: 0.0, y: self.t_min }.to_scrn(self),
+            Point2 { x: 0.0, y: self.y_max }.to_scrn(self)
+        ], 1.0, BLACK)?;
 
         for j in 0..=self.y_div {
             for i in 0..=self.t_div {
@@ -120,7 +134,7 @@ impl EventHandler for State {
                 };
                 let slope = self.calculate(cb).unwrap() as f32;
 
-                let Point2 { x, y } = to_scrn(self, &Point2 { x: t, y });
+                let Point2 { x, y } = Point2 { x: t, y }.to_scrn(self);
 
                 let theta = slope.atan();
 
@@ -140,8 +154,8 @@ impl EventHandler for State {
         let mut left = self.pl.clone();
         let mut right = self.pr.clone();
 
-        while in_bounds(&left, self) || in_bounds(&right, self) {
-            if in_bounds(&left, self) {
+        while (left.x >= self.t_min && left.x <= self.t_max) || (right.x >= self.t_min && right.x <= self.t_max) {
+            if left.x >= self.t_min && left.x <= self.t_max {
                 let cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
                     match name {
                         "t" => Some(left.x as f64),
@@ -156,14 +170,14 @@ impl EventHandler for State {
                     y: left.y - delta * self.dt,
                 };
                 builder.line(
-                    &[to_scrn(self, &left), to_scrn(self, &new)],
+                    &[left.to_scrn(self), new.to_scrn(self)],
                     1.5,
                     Color::from_rgb(255, 0, 0),
                 )?;
 
                 left = new;
             }
-            if in_bounds(&right, self) {
+            if right.x >= self.t_min && right.x <= self.t_max {
                 let cb = |name: &str, _args: Vec<f64>| -> Option<f64> {
                     match name {
                         "t" => Some(right.x as f64),
@@ -178,7 +192,7 @@ impl EventHandler for State {
                     y: right.y + delta * self.dt,
                 };
                 builder.line(
-                    &[to_scrn(self, &right), to_scrn(self, &new)],
+                    &[right.to_scrn(self), new.to_scrn(self)],
                     1.0,
                     Color::from_rgb(255, 0, 0),
                 )?;
@@ -198,29 +212,31 @@ impl EventHandler for State {
     }
 }
 
+trait PointScale {
+    fn to_scrn(&self, state: &State) -> Self;
 
-fn in_bounds(pt: &Point2<f32>, state: &State) -> bool {
-    let Point2 { x, y } = *pt;
-    x >= state.t_min && x <= state.t_max && y >= state.y_min && y <= state.y_max
+    fn from_scrn(&self, state: &State) -> Self;
 }
 
-fn to_scrn(state: &State, pt: &Point2<f32>) -> Point2<f32> {
-    Point2 {
-        x: 400.0 + pt.x / (state.t_max - state.t_min) * 800.0,
-        y: 300.0 - pt.y / (state.y_max - state.y_min) * 600.0,
+impl PointScale for Point2<f32> {
+    fn to_scrn(&self, state: &State) -> Self {
+        Point2 {
+            x: 400.0 + self.x / (state.t_max - state.t_min) * 800.0,
+            y: 300.0 - self.y / (state.y_max - state.y_min) * 600.0,
+        }
     }
-}
 
-fn from_scrn(state: &State, pt: &Point2<f32>) -> Point2<f32> {
-    Point2 {
-        x: (pt.x - 400.0) / 800.0 * (state.t_max - state.t_min),
-        y: -(pt.y - 300.0) / 600.0 * (state.y_max - state.y_min),
+    fn from_scrn(&self, state: &State) -> Self {
+        Point2 {
+            x: (self.x - 400.0) / 800.0 * (state.t_max - state.t_min),
+            y: -(self.y - 300.0) / 600.0 * (state.y_max - state.y_min),
+        }
     }
 }
 
 fn main() {
     let state = &mut State::new();
-    state.read_eq();
+//    state.read_eq();
     state.read_cfg();
 
     let cb = ContextBuilder::new("", "");

@@ -4,3 +4,4 @@ t div: 40
 y min: -10.0
 y max: 10.0
 y div: 30
+eq: 3*cos(2*t)-y/t
