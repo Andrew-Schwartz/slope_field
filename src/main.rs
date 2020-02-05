@@ -143,8 +143,8 @@ impl EventHandler for State {
                     y: y + theta.sin() * y_spacing / 4.0,
                 };
                 let p2 = Point2 {
-                    x: x + theta.cos() * x_spacing / 4.0,
                     y: y - theta.sin() * y_spacing / 4.0,
+                    x: x + theta.cos() * x_spacing / 4.0,
                 };
 
                 builder.line(&[p1, p2], 1.2, BLACK)?;
@@ -221,15 +221,15 @@ trait PointScale {
 impl PointScale for Point2<f32> {
     fn to_scrn(&self, state: &State) -> Self {
         Point2 {
-            x: 400.0 + self.x / (state.t_max - state.t_min) * 800.0,
-            y: 300.0 - self.y / (state.y_max - state.y_min) * 600.0,
+            x: (self.x - state.t_min) / (state.t_max - state.t_min) * 800.0,
+            y: -(self.y - state.y_min) / (state.y_max - state.y_min) * 600.0 + 600.0,
         }
     }
 
     fn from_scrn(&self, state: &State) -> Self {
         Point2 {
-            x: (self.x - 400.0) / 800.0 * (state.t_max - state.t_min),
-            y: -(self.y - 300.0) / 600.0 * (state.y_max - state.y_min),
+            x: self.x * (state.t_max - state.t_min) / 800.0 + state.t_min,
+            y: -(self.y - 600.0) * (state.y_max - state.y_min) / 600.0 + state.y_min,
         }
     }
 }

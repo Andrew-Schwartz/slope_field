@@ -1,4 +1,4 @@
-t min: -10.0
+t min: -1.0
 t max: 10.0
 t div: 40
 y min: -10.0
