@@ -1,5 +1,7 @@
 use std::fs::File;
 use std::io::Read;
+use std::time;
+use std::time::{Duration, Instant};
 
 use fasteval::{Compiler, eval_compiled_ref, Instruction, Parser, Slab};
 use fasteval::evaler::Evaler;
@@ -23,15 +25,16 @@ struct State {
     y_div: i32,
     pl: Point2<f32>,
     pr: Point2<f32>,
+    start_time: time::Instant,
 }
 
 impl State {
     fn new() -> State {
         State {
-            dydt: Instruction::IConst(1.0),
+            dydt: Instruction::IConst(0.0),
             slab: Slab::new(),
             parser: Parser::new(),
-            dt: 0.01,
+            dt: 0.05,
             t_min: -10.0,
             t_max: 10.0,
             t_div: 40,
@@ -40,6 +43,7 @@ impl State {
             y_div: 32,
             pl: Point2 { x: 1.0, y: 1.0 },
             pr: Point2 { x: 1.0, y: 1.0 },
+            start_time: Instant::now(),
         }
     }
 
@@ -48,17 +52,6 @@ impl State {
         let x = eval_compiled_ref!(&self.dydt, &self.slab, &mut f);
         Ok(x)
     }
-
-//    fn read_eq(&mut self) {
-//        let mut file = File::open("eq.txt").unwrap();
-//        let mut contents = String::new();
-//        file.read_to_string(&mut contents).unwrap();
-//
-//        self.dydt = self.parser.parse(&contents, &mut self.slab.ps)
-//            .unwrap()
-//            .from(&self.slab.ps)
-//            .compile(&self.slab.ps, &mut self.slab.cs);
-//    }
 
     fn read_cfg(&mut self) {
         let mut file = File::open("cfg.txt").unwrap();
@@ -70,20 +63,21 @@ impl State {
                 let mut split = line.split(":");
                 (split.next().unwrap(), split.next().unwrap())
             })
-            .for_each(|(var, val)| {
-                match var {
-                    "t min" => self.t_min = val.trim().parse().unwrap_or(self.t_min),
-                    "t max" => self.t_max = val.trim().parse().unwrap_or(self.t_max),
-                    "t div" => self.t_div = val.trim().parse().unwrap_or(self.t_div),
-                    "y min" => self.y_min = val.trim().parse().unwrap_or(self.y_min),
-                    "y max" => self.y_max = val.trim().parse().unwrap_or(self.y_max),
-                    "y div" => self.y_div = val.trim().parse().unwrap_or(self.y_div),
-                    "eq" => self.dydt = self.parser.parse(&val, &mut self.slab.ps)
-                        .unwrap()
-                        .from(&self.slab.ps)
-                        .compile(&self.slab.ps, &mut self.slab.cs),
-                    _ => println!("{}", var),
+            .for_each(|(var, val)| match var {
+                "t min" => self.t_min = val.trim().parse().unwrap_or(self.t_min),
+                "t max" => self.t_max = val.trim().parse().unwrap_or(self.t_max),
+                "t div" => self.t_div = val.trim().parse().unwrap_or(self.t_div),
+                "y min" => self.y_min = val.trim().parse().unwrap_or(self.y_min),
+                "y max" => self.y_max = val.trim().parse().unwrap_or(self.y_max),
+                "y div" => self.y_div = val.trim().parse().unwrap_or(self.y_div),
+                "eq" => {
+                    let res = self.parser.parse(&val, &mut self.slab.ps);
+                    if let Ok(exp) = res {
+                        self.dydt = exp.from(&self.slab.ps)
+                            .compile(&self.slab.ps, &mut self.slab.cs);
+                    }
                 }
+                _ => println!("{}", var),
             });
     }
 }
@@ -93,10 +87,11 @@ impl EventHandler for State {
         self.pl = mouse::position(ctx).from_scrn(self);
         self.pr = self.pl;
 
-        let new_eq = ggez::input::keyboard::is_key_pressed(ctx, KeyCode::Return);
+        let new_eq = ggez::input::keyboard::is_key_pressed(ctx, KeyCode::Return) ||
+            Instant::now().duration_since(self.start_time) > Duration::from_secs(1);
         if new_eq {
-//            self.read_eq();
             self.read_cfg();
+            self.start_time = Instant::now();
         }
 
         Ok(())
@@ -116,7 +111,7 @@ impl EventHandler for State {
         ], 1.0, BLACK)?;
 
         builder.line(&[
-            Point2 { x: 0.0, y: self.t_min }.to_scrn(self),
+            Point2 { x: 0.0, y: self.y_min }.to_scrn(self),
             Point2 { x: 0.0, y: self.y_max }.to_scrn(self)
         ], 1.0, BLACK)?;
 
@@ -236,7 +231,6 @@ impl PointScale for Point2<f32> {
 
 fn main() {
     let state = &mut State::new();
-//    state.read_eq();
     state.read_cfg();
 
     let cb = ContextBuilder::new("", "");
